@@ -134,3 +134,35 @@ class OpenAIContractTests(unittest.TestCase):
         )
         arguments = response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
         self.assertEqual(arguments, '{"offset":1}')
+
+    def test_only_first_of_concatenated_tool_envelopes_is_executed(self):
+        self.upstream.reply = (
+            '{"tool_calls":[{"name":"read_file","arguments":{"path":"source.html"}}]}'
+            '\n{"tool_calls":[{"name":"write_file","arguments":{"path":"index.html"}}]}'
+        )
+        response = self.client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "llama3.1-8B",
+                "messages": [{"role": "user", "content": "Read then write"}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+                        },
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "write_file",
+                            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+                        },
+                    },
+                ],
+            },
+        )
+        calls = response.json()["choices"][0]["message"]["tool_calls"]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["function"]["name"], "read_file")

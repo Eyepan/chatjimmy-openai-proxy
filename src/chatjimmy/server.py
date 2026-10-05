@@ -87,7 +87,10 @@ def _tool_instruction(tools: Any) -> tuple[str, dict[str, dict[str, str]]]:
 def _parse_tool_payload(text: str) -> dict[str, Any] | None:
     payload = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
-        parsed = json.loads(payload)
+        # Some small models emit a second tool request before they have seen
+        # the first result. Process only the first envelope so OpenCode can
+        # complete that call and supply its real result in the next turn.
+        parsed, _ = json.JSONDecoder().raw_decode(payload)
     except json.JSONDecodeError:
         if not payload.startswith("{"):
             return None
