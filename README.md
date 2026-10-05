@@ -1,10 +1,10 @@
-# chatjimmy
+# chatjimmy-openai-proxy
 
-Unofficial Python wrapper for the chatjimmy.ai API.
+An OpenAI-compatible local gateway for [chatjimmy.ai](https://chatjimmy.ai), a public Llama 3.1 8B demo backed by Taalas HC1 inference hardware.
 
-chatjimmy.ai is a demo chatbot by Taalas, running Llama 3.1 8B on their custom HC1 silicon at ~17,000 tokens/sec per user.
+It exposes the upstream service through the standard `GET /v1/models` and `POST /v1/chat/completions` endpoints so it can be used with OpenAI-compatible clients, including OpenCode.
 
-https://chatjimmy.ai
+This project is based on [0xMH/chatjimmy-api](https://github.com/0xMH/chatjimmy-api), whose Python client remains available as the `chatjimmy` package in this repository. The original MIT license and attribution are retained in `LICENSE`.
 
 ## Quick Start
 
@@ -15,6 +15,32 @@ client = ChatJimmy()
 
 answer = client.ask("What is the capital of France?")
 print(answer)
+```
+
+## OpenAI-Compatible Server
+
+Install and start the adapter:
+
+```bash
+uv sync
+uv run chatjimmy-openai-proxy
+```
+
+It listens at `http://127.0.0.1:8000` and exposes `GET /v1/models` and `POST /v1/chat/completions`, including OpenAI Server-Sent Event streaming. The adapter supports text messages and system/developer prompts. The upstream model does not support tool calling, vision, or controlled output length.
+
+```bash
+curl http://127.0.0.1:8000/v1/models
+curl http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"llama3.1-8B","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+### OpenCode
+
+The included OpenCode provider configuration registers this service as `chatjimmy/llama3.1-8B`. It deliberately declares `tool_call: false`, because the upstream model cannot return tool calls.
+
+```bash
+opencode debug config
 ```
 
 ## Usage
