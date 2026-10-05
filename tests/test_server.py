@@ -7,6 +7,9 @@ from chatjimmy.server import create_app
 
 
 class FakeChatJimmy:
+    def __init__(self):
+        self.reply = "Hello"
+
     def models(self):
         return [Model(id="llama3.1-8B", created=1, owned_by="Taalas Inc.")]
 
@@ -15,7 +18,7 @@ class FakeChatJimmy:
         self.model = model
         self.system_prompt = system_prompt
         self.top_k = top_k
-        return ChatResponse("Hello", Stats(prefill_tokens=3, decode_tokens=1, total_tokens=4, done_reason="stop"))
+        return ChatResponse(self.reply, Stats(prefill_tokens=3, decode_tokens=1, total_tokens=4, done_reason="stop"))
 
 
 class OpenAIContractTests(unittest.TestCase):
@@ -82,3 +85,52 @@ class OpenAIContractTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(self.upstream.system_prompt), 12_000)
+
+    def test_json_tool_envelope_becomes_openai_tool_call(self):
+        self.upstream.reply = '{"tool_calls":[{"name":"read_file","arguments":{"path":"README.md"}}]}'
+        response = self.client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "llama3.1-8B",
+                "messages": [{"role": "user", "content": "Read README.md"}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "description": "Read a file.",
+                            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+                        },
+                    }
+                ],
+            },
+        )
+        message = response.json()["choices"][0]["message"]
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["choices"][0]["finish_reason"], "tool_calls")
+        self.assertIsNone(message["content"])
+        self.assertEqual(message["tool_calls"][0]["function"]["name"], "read_file")
+        self.assertEqual(message["tool_calls"][0]["function"]["arguments"], '{"path":"README.md"}')
+        self.assertIn('"name":"read_file"', self.upstream.system_prompt)
+        self.assertIn('"path":"string"', self.upstream.system_prompt)
+
+    def test_incomplete_tool_json_and_numeric_strings_are_recovered(self):
+        self.upstream.reply = '{"tool_calls":[{"name":"read_file","arguments":{"offset":"1"}}]'
+        response = self.client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "llama3.1-8B",
+                "messages": [{"role": "user", "content": "Read a file"}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "parameters": {"type": "object", "properties": {"offset": {"type": "integer"}}},
+                        },
+                    }
+                ],
+            },
+        )
+        arguments = response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+        self.assertEqual(arguments, '{"offset":1}')

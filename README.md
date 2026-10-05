@@ -37,7 +37,9 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 ### OpenCode
 
-The included OpenCode provider configuration registers this service as `chatjimmy/llama3.1-8B`. It deliberately declares `tool_call: false`, because the upstream model cannot return tool calls.
+The included OpenCode provider configuration registers this service as `chatjimmy/llama3.1-8B`. The adapter translates a compact JSON tool-call envelope from the upstream model into the OpenAI tool-call contract, so OpenCode can execute tools.
+
+Tool calling is experimental: chatjimmy uses a small general-purpose model with a limited context window, so it can produce malformed or incorrect calls. Keep OpenCode's normal permission prompts enabled and do not use `--auto` with this provider for write-capable tasks.
 
 ```bash
 opencode debug config
