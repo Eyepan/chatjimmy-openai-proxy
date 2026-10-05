@@ -68,7 +68,7 @@ For OpenCode, point the custom provider at your deployment and use the same key:
 }
 ```
 
-The Vercel function is configured for a maximum 300-second duration. It proxies requests to the public chatjimmy.ai service; hosting the adapter on Vercel does not host or control the model itself.
+Vercel's Python runtime currently allows functions up to 300 seconds on Hobby. The app proxies requests to the public chatjimmy.ai service; hosting the adapter on Vercel does not host or control the model itself.
 
 ### OpenCode
 
