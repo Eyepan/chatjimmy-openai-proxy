@@ -39,7 +39,9 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 The included OpenCode provider configuration registers this service as `chatjimmy/llama3.1-8B`. The adapter translates a compact JSON tool-call envelope from the upstream model into the OpenAI tool-call contract, so OpenCode can execute tools.
 
-Tool calling is experimental: chatjimmy uses a small general-purpose model with a limited context window, so it can produce malformed or incorrect calls. Keep OpenCode's normal permission prompts enabled and do not use `--auto` with this provider for write-capable tasks.
+**Tool calling is flaky at best and may fail outright at worst.** The adapter asks the small general-purpose model to imitate structured tool calls, but it can emit malformed JSON, hallucinate tools, repeat completed calls, choose the wrong file operation, or fail to use tool results. Keep OpenCode's normal permission prompts enabled. Do not use `--auto` with this provider for write-capable tasks. For consequential work, review every proposed tool call and its result.
+
+The adapter includes narrow safeguards for explicit file-read requests and HTML output paths, but these do not make tool calling generally reliable.
 
 ```bash
 opencode debug config

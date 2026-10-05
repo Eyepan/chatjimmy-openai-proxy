@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections.abc import Iterator
@@ -16,6 +17,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from chatjimmy.client import ChatJimmy, ChatResponse, Stats
 
 MAX_SYSTEM_PROMPT_CHARS = 12_000
+_READ_REQUEST_RE = re.compile(r"\bread\s+(?:the\s+)?[`'\"]?([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)", re.IGNORECASE)
+_HTML_OUTPUT_RE = re.compile(r"\b([A-Za-z0-9_./-]+\.html?)\b", re.IGNORECASE)
 
 
 def _error(message: str, *, status_code: int, param: str | None = None) -> JSONResponse:
@@ -48,7 +51,24 @@ def _content_to_text(content: Any) -> str:
     raise ValueError("Message content must be a string or text content parts")
 
 
-def _tool_instruction(tools: Any) -> tuple[str, dict[str, dict[str, str]]]:
+def _requested_output_paths(body: dict[str, Any]) -> list[str]:
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return []
+    user_content = next(
+        (
+            message.get("content")
+            for message in reversed(messages)
+            if isinstance(message, dict) and message.get("role") == "user" and isinstance(message.get("content"), str)
+        ),
+        "",
+    )
+    if not re.search(r"\b(create|write|save)\b", user_content, re.IGNORECASE):
+        return []
+    return list(dict.fromkeys(_HTML_OUTPUT_RE.findall(user_content)))
+
+
+def _tool_instruction(tools: Any, output_paths: list[str]) -> tuple[str, dict[str, dict[str, str]]]:
     if not isinstance(tools, list):
         return "", {}
 
@@ -56,6 +76,8 @@ def _tool_instruction(tools: Any) -> tuple[str, dict[str, dict[str, str]]]:
     for tool in tools:
         function = tool.get("function") if isinstance(tool, dict) else None
         if not isinstance(function, dict) or not isinstance(function.get("name"), str):
+            continue
+        if output_paths and function["name"].startswith("edit"):
             continue
         parameters = function.get("parameters")
         properties = parameters.get("properties", {}) if isinstance(parameters, dict) else {}
@@ -75,13 +97,15 @@ def _tool_instruction(tools: Any) -> tuple[str, dict[str, dict[str, str]]]:
     if not manifest:
         return "", {}
     tool_arguments = {tool["name"]: tool["arguments"] for tool in manifest}
-    return (
+    instruction = (
         "You can call tools. When a tool is needed, respond with ONLY valid JSON: "
         '{"tool_calls":[{"name":"tool_name","arguments":{"argument":"value"}}]}. '
         "Do not use markdown. Only call these tools:\n"
-        + json.dumps(manifest, separators=(",", ":")),
-        tool_arguments,
+        + json.dumps(manifest, separators=(",", ":"))
     )
+    if output_paths:
+        instruction += f"\nFor this request, only create or write: {', '.join(output_paths)}. Never edit the source file."
+    return instruction, tool_arguments
 
 
 def _parse_tool_payload(text: str) -> dict[str, Any] | None:
@@ -140,7 +164,42 @@ def _coerce_arguments(arguments: dict[str, Any], schema: dict[str, str]) -> dict
     return coerced
 
 
-def _tool_calls(text: str, tool_arguments: dict[str, dict[str, str]]) -> list[dict[str, Any]]:
+def _openai_tool_call(name: str, arguments: dict[str, Any], index: int) -> dict[str, Any]:
+    return {
+        "id": f"call_{uuid.uuid4().hex}",
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(arguments, separators=(",", ":"))},
+        "index": index,
+    }
+
+
+def _read_first_tool_call(body: dict[str, Any], tool_arguments: dict[str, dict[str, str]]) -> list[dict[str, Any]]:
+    messages = body.get("messages")
+    if not isinstance(messages, list) or any(message.get("role") == "tool" for message in messages if isinstance(message, dict)):
+        return []
+    user_content = next(
+        (
+            message.get("content")
+            for message in reversed(messages)
+            if isinstance(message, dict) and message.get("role") == "user" and isinstance(message.get("content"), str)
+        ),
+        None,
+    )
+    match = _READ_REQUEST_RE.search(user_content) if user_content else None
+    if not match:
+        return []
+    for name, arguments in tool_arguments.items():
+        if not name.startswith("read"):
+            continue
+        path_field = "filePath" if "filePath" in arguments else "path" if "path" in arguments else None
+        if path_field:
+            return [_openai_tool_call(name, {path_field: match.group(1)}, 0)]
+    return []
+
+
+def _tool_calls(
+    text: str, tool_arguments: dict[str, dict[str, str]], output_paths: list[str]
+) -> list[dict[str, Any]]:
     if not tool_arguments:
         return []
     parsed = _parse_tool_payload(text)
@@ -158,14 +217,11 @@ def _tool_calls(text: str, tool_arguments: dict[str, dict[str, str]]) -> list[di
         if not isinstance(arguments, dict):
             return []
         arguments = _coerce_arguments(arguments, tool_arguments[call["name"]])
-        calls.append(
-            {
-                "id": f"call_{uuid.uuid4().hex}",
-                "type": "function",
-                "function": {"name": call["name"], "arguments": json.dumps(arguments, separators=(",", ":"))},
-                "index": index,
-            }
-        )
+        if output_paths and call["name"].startswith("write"):
+            path_field = "filePath" if "filePath" in tool_arguments[call["name"]] else "path"
+            if path_field in tool_arguments[call["name"]]:
+                arguments[path_field] = output_paths[0]
+        calls.append(_openai_tool_call(call["name"], arguments, index))
     return calls
 
 
@@ -196,7 +252,7 @@ def _messages(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, dict[str
 
     if not messages:
         raise ValueError("At least one non-system message is required")
-    tool_prompt, tool_arguments = _tool_instruction(body.get("tools"))
+    tool_prompt, tool_arguments = _tool_instruction(body.get("tools"), _requested_output_paths(body))
     # chatjimmy silently returns an empty response beyond its ~6k-token input
     # limit. Keep the compact tool protocol before OpenCode's longer prompt.
     system_messages = "\n\n".join(system_parts)
@@ -283,11 +339,17 @@ def create_app(client: ChatJimmy | None = None) -> FastAPI:
         if not isinstance(model, str) or not model:
             return _error("'model' must be a non-empty string", status_code=400, param="model")
         try:
+            output_paths = _requested_output_paths(body)
             messages, system_prompt, tool_arguments = _messages(body)
             top_k = body.get("top_k", 8)
             if not isinstance(top_k, int) or top_k < 1:
                 raise ValueError("'top_k' must be a positive integer")
-            response = upstream.chat(messages, model=model, system_prompt=system_prompt, top_k=top_k)
+            forced_tool_calls = _read_first_tool_call(body, tool_arguments)
+            response = (
+                ChatResponse(text="")
+                if forced_tool_calls
+                else upstream.chat(messages, model=model, system_prompt=system_prompt, top_k=top_k)
+            )
         except ValueError as error:
             return _error(str(error), status_code=400, param="messages")
         except requests.RequestException as error:
@@ -295,7 +357,7 @@ def create_app(client: ChatJimmy | None = None) -> FastAPI:
 
         completion_id = f"chatcmpl-{uuid.uuid4().hex}"
         created = int(time.time())
-        tool_calls = _tool_calls(response.text, tool_arguments)
+        tool_calls = forced_tool_calls or _tool_calls(response.text, tool_arguments, output_paths)
         if body.get("stream") is True:
             return StreamingResponse(
                 _stream(response, model=model, completion_id=completion_id, created=created, tool_calls=tool_calls),

@@ -9,11 +9,13 @@ from chatjimmy.server import create_app
 class FakeChatJimmy:
     def __init__(self):
         self.reply = "Hello"
+        self.calls = 0
 
     def models(self):
         return [Model(id="llama3.1-8B", created=1, owned_by="Taalas Inc.")]
 
     def chat(self, messages, model, system_prompt, top_k):
+        self.calls += 1
         self.messages = messages
         self.model = model
         self.system_prompt = system_prompt
@@ -92,7 +94,7 @@ class OpenAIContractTests(unittest.TestCase):
             "/v1/chat/completions",
             json={
                 "model": "llama3.1-8B",
-                "messages": [{"role": "user", "content": "Read README.md"}],
+                "messages": [{"role": "user", "content": "Use the read_file tool for README.md"}],
                 "tools": [
                     {
                         "type": "function",
@@ -166,3 +168,68 @@ class OpenAIContractTests(unittest.TestCase):
         calls = response.json()["choices"][0]["message"]["tool_calls"]
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["function"]["name"], "read_file")
+
+    def test_explicit_file_read_is_forced_before_writes(self):
+        response = self.client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "llama3.1-8B",
+                "messages": [{"role": "user", "content": "Read COPY.md, then create index.html."}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "read",
+                            "parameters": {"type": "object", "properties": {"filePath": {"type": "string"}}},
+                        },
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "write",
+                            "parameters": {"type": "object", "properties": {"filePath": {"type": "string"}}},
+                        },
+                    },
+                ],
+            },
+        )
+        call = response.json()["choices"][0]["message"]["tool_calls"][0]
+        self.assertEqual(self.upstream.calls, 0)
+        self.assertEqual(call["function"]["name"], "read")
+        self.assertEqual(call["function"]["arguments"], '{"filePath":"COPY.md"}')
+
+    def test_explicit_html_output_forces_write_target_and_hides_edit(self):
+        self.upstream.reply = '{"tool_calls":[{"name":"write","arguments":{"filePath":"COPY.md","content":"hello"}}]}'
+        response = self.client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "llama3.1-8B",
+                "messages": [
+                    {"role": "user", "content": "Read COPY.md. Create index.html."},
+                    {"role": "tool", "content": "Portfolio content"},
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "write",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"filePath": {"type": "string"}, "content": {"type": "string"}},
+                            },
+                        },
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "edit",
+                            "parameters": {"type": "object", "properties": {"filePath": {"type": "string"}}},
+                        },
+                    },
+                ],
+            },
+        )
+        call = response.json()["choices"][0]["message"]["tool_calls"][0]
+        self.assertEqual(call["function"]["name"], "write")
+        self.assertEqual(call["function"]["arguments"], '{"filePath":"index.html","content":"hello"}')
+        self.assertNotIn('"name":"edit"', self.upstream.system_prompt)
