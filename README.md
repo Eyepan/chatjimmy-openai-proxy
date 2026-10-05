@@ -4,6 +4,8 @@ An OpenAI-compatible local gateway for [chatjimmy.ai](https://chatjimmy.ai), a p
 
 It exposes the upstream service through the standard `GET /v1/models` and `POST /v1/chat/completions` endpoints so it can be used with OpenAI-compatible clients, including OpenCode.
 
+**Hosted API:** [`https://chatjimmy-openai-proxy-mu.vercel.app/v1`](https://chatjimmy-openai-proxy-mu.vercel.app/v1). The live deployment requires a bearer API key; request access from the owner.
+
 This project is based on [0xMH/chatjimmy-api](https://github.com/0xMH/chatjimmy-api), whose Python client remains available as the `chatjimmy` package in this repository. The original MIT license and attribution are retained in `LICENSE`.
 
 ## Quick Start
@@ -42,7 +44,7 @@ This repository includes a FastAPI entrypoint and Vercel configuration. To deplo
 1. Import `Eyepan/chatjimmy-openai-proxy` into Vercel.
 2. Keep the project root at the repository root and deploy with the detected Python/FastAPI runtime.
 3. In **Project Settings → Environment Variables**, set `CHATJIMMY_API_KEY` to a long random secret, then redeploy. When configured, this key is required as a Bearer token on `/v1/*` routes. If it is unset, the API is public.
-4. Use `https://<your-project>.vercel.app/v1` as the OpenAI-compatible base URL.
+4. Use `https://<your-project>.vercel.app/v1` as the OpenAI-compatible base URL. The maintained deployment is `https://chatjimmy-openai-proxy-mu.vercel.app/v1`.
 
 For OpenCode, point the custom provider at your deployment and use the same key:
 
