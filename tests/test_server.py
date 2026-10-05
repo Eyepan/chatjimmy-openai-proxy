@@ -56,3 +56,29 @@ class OpenAIContractTests(unittest.TestCase):
         self.assertEqual(response.headers["content-type"].split(";")[0], "text/event-stream")
         self.assertIn('"object":"chat.completion.chunk"', body)
         self.assertTrue(body.endswith("data: [DONE]\n\n"))
+
+    def test_tool_declarations_are_ignored_for_text_only_model(self):
+        response = self.client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "llama3.1-8B",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "tools": [{"type": "function", "function": {"name": "read_file"}}],
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["choices"][0]["message"]["content"], "Hello")
+
+    def test_long_system_prompts_are_capped_for_upstream_limit(self):
+        response = self.client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "llama3.1-8B",
+                "messages": [
+                    {"role": "system", "content": "x" * 20_000},
+                    {"role": "user", "content": "Hello"},
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self.upstream.system_prompt), 12_000)

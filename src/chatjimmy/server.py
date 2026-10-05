@@ -15,6 +15,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from chatjimmy.client import ChatJimmy, ChatResponse, Stats
 
+MAX_SYSTEM_PROMPT_CHARS = 12_000
+
 
 def _error(message: str, *, status_code: int, param: str | None = None) -> JSONResponse:
     return JSONResponse(
@@ -69,7 +71,9 @@ def _messages(body: dict[str, Any]) -> tuple[list[dict[str, str]], str]:
 
     if not messages:
         raise ValueError("At least one non-system message is required")
-    return messages, "\n\n".join(system_parts)
+    # chatjimmy silently returns an empty response beyond its ~6k-token input
+    # limit. OpenCode's tool instructions can exceed that limit on their own.
+    return messages, "\n\n".join(system_parts)[:MAX_SYSTEM_PROMPT_CHARS]
 
 
 def _usage(stats: Stats | None) -> dict[str, int]:
@@ -133,8 +137,8 @@ def create_app(client: ChatJimmy | None = None) -> FastAPI:
             return _error("Request body must be valid JSON", status_code=400)
         if not isinstance(body, dict):
             return _error("Request body must be a JSON object", status_code=400)
-        if body.get("tools"):
-            return _error("Tool calling is not supported by this model", status_code=400, param="tools")
+        # OpenCode sends its tool declarations even for text-only models. The
+        # upstream ignores them, so accepting the request preserves chat use.
         model = body.get("model")
         if not isinstance(model, str) or not model:
             return _error("'model' must be a non-empty string", status_code=400, param="model")
