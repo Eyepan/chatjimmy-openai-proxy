@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -32,6 +33,14 @@ class OpenAIContractTests(unittest.TestCase):
         response = self.client.get("/v1/models")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["data"][0]["id"], "llama3.1-8B")
+
+    def test_optional_api_key_protects_v1_routes(self):
+        with patch.dict("os.environ", {"CHATJIMMY_API_KEY": "test-secret"}):
+            missing_key = self.client.get("/v1/models")
+            valid_key = self.client.get("/v1/models", headers={"Authorization": "Bearer test-secret"})
+        self.assertEqual(missing_key.status_code, 401)
+        self.assertEqual(missing_key.json()["error"]["type"], "authentication_error")
+        self.assertEqual(valid_key.status_code, 200)
 
     def test_chat_completion_maps_system_messages_and_usage(self):
         response = self.client.post(

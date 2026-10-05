@@ -32,6 +32,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/chatjimmy"]
 
+[tool.vercel]
+entrypoint = "app:app"
+
 [dependency-groups]
 dev = [
     "httpx2>=2.13.1",

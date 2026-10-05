@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hmac
 import json
+import os
 import re
 import time
 import uuid
@@ -319,6 +321,28 @@ def create_app(client: ChatJimmy | None = None) -> FastAPI:
     """Create the adapter app; pass a client to replace the upstream in tests."""
     upstream = client or ChatJimmy()
     app = FastAPI(title="chatjimmy OpenAI-compatible API", version="0.1.0")
+
+    @app.middleware("http")
+    async def require_api_key(request: Request, call_next: Any) -> Any:
+        expected_key = os.environ.get("CHATJIMMY_API_KEY")
+        if expected_key and request.url.path.startswith("/v1/"):
+            supplied_key = request.headers.get("authorization", "")
+            if not supplied_key.startswith("Bearer ") or not hmac.compare_digest(
+                supplied_key.removeprefix("Bearer "), expected_key
+            ):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": {
+                            "message": "Invalid or missing API key",
+                            "type": "authentication_error",
+                            "param": None,
+                            "code": "invalid_api_key",
+                        }
+                    },
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        return await call_next(request)
 
     @app.get("/v1/models", response_model=None)
     def models() -> dict[str, Any] | JSONResponse:

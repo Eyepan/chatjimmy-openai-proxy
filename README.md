@@ -35,6 +35,41 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   -d '{"model":"llama3.1-8B","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
+### Deploy on Vercel
+
+This repository includes a FastAPI entrypoint and Vercel configuration. To deploy:
+
+1. Import `Eyepan/chatjimmy-openai-proxy` into Vercel.
+2. Keep the project root at the repository root and deploy with the detected Python/FastAPI runtime.
+3. In **Project Settings → Environment Variables**, set `CHATJIMMY_API_KEY` to a long random secret, then redeploy. When configured, this key is required as a Bearer token on `/v1/*` routes. If it is unset, the API is public.
+4. Use `https://<your-project>.vercel.app/v1` as the OpenAI-compatible base URL.
+
+For OpenCode, point the custom provider at your deployment and use the same key:
+
+```jsonc
+{
+  "provider": {
+    "chatjimmy": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "chatjimmy (Vercel)",
+      "options": {
+        "baseURL": "https://<your-project>.vercel.app/v1",
+        "apiKey": "{env:CHATJIMMY_API_KEY}"
+      },
+      "models": {
+        "llama3.1-8B": {
+          "name": "Llama 3.1 8B (chatjimmy)",
+          "tool_call": true,
+          "limit": { "context": 6064, "output": 2400 }
+        }
+      }
+    }
+  }
+}
+```
+
+The Vercel function is configured for a maximum 300-second duration. It proxies requests to the public chatjimmy.ai service; hosting the adapter on Vercel does not host or control the model itself.
+
 ### OpenCode
 
 The included OpenCode provider configuration registers this service as `chatjimmy/llama3.1-8B`. The adapter translates a compact JSON tool-call envelope from the upstream model into the OpenAI tool-call contract, so OpenCode can execute tools.
