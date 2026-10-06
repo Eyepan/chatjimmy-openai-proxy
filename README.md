@@ -4,7 +4,7 @@ An OpenAI-compatible local gateway for [chatjimmy.ai](https://chatjimmy.ai), a p
 
 It exposes the upstream service through the standard `GET /v1/models` and `POST /v1/chat/completions` endpoints so it can be used with OpenAI-compatible clients, including OpenCode.
 
-**Hosted API:** [`https://chatjimmy-openai-proxy-mu.vercel.app/v1`](https://chatjimmy-openai-proxy-mu.vercel.app/v1). The live deployment requires a bearer API key; request access from the owner.
+**Hosted API:** [`https://chatjimmy-openai-proxy-mu.vercel.app/v1`](https://chatjimmy-openai-proxy-mu.vercel.app/v1). The live deployment requires a bearer API key; ping/mail me for access (I dont have a lot of Vercel runtime credits:()
 
 This project is based on [0xMH/chatjimmy-api](https://github.com/0xMH/chatjimmy-api), whose Python client remains available as the `chatjimmy` package in this repository. The original MIT license and attribution are retained in `LICENSE`.
 
